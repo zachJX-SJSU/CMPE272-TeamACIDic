@@ -1,0 +1,90 @@
+---
+- name: Deploy webserver on port 8080
+  hosts: all
+  become: yes
+  tags:
+    - deploy
+  vars:
+    nginx_port: 8080
+
+  tasks:
+    - name: Set webserver ID variable
+      ansible.builtin.set_fact:
+        webserver_id: "{{ inventory_hostname | regex_replace('vm', '') }}"
+      
+    - name: Install Nginx
+      ansible.builtin.dnf:
+        name: nginx
+        state: present
+
+    - name: Ensure Nginx directories are configured
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      with_items:
+        - /etc/nginx/sites-available
+        - /etc/nginx/sites-enabled
+        - /var/www/html
+
+    - name: Ensure Nginx is configured to listen on port {{ nginx_port }}
+      ansible.builtin.copy:
+        content: |
+          server {
+              listen {{ nginx_port }};
+              server_name localhost;
+              location / {
+                  root /var/www/html;
+                  index index.html;
+              }
+          }
+        dest: /etc/nginx/sites-available/default
+      notify: Restart Nginx
+
+    - name: Link default site to sites-enabled
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/default
+        dest: /etc/nginx/sites-enabled/default
+        state: link
+        force: yes
+      notify: Restart Nginx
+
+    - name: Copy index.html with customized message
+      ansible.builtin.template:
+        src: templates/index.html.j2
+        dest: /var/www/html/index.html
+        mode: '0644'
+
+    - name: Ensure Nginx service is running and enabled
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: Restart Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+
+- name: Un-deploy webserver resources
+  hosts: all
+  become: yes
+  tags:
+    - undeploy
+  tasks:
+    - name: Stop and disable Nginx service
+      ansible.builtin.service:
+        name: nginx
+        state: stopped
+        enabled: no
+
+    - name: Remove Nginx package
+      ansible.builtin.dnf:
+        name: nginx
+        state: absent
+
+    - name: Remove custom web page
+      ansible.builtin.file:
+        path: /var/www/html/index.html
+        state: absent
