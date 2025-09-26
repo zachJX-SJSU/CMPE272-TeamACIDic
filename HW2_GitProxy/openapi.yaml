@@ -1,0 +1,262 @@
+openapi: 3.1.0
+info:
+  title: GitHub REST API proxy gateway server
+  version: 1.0.0
+  description: |
+    Gateway API to manage GitHub Issues on a configured repository, and receive GitHub webhooks.
+servers:
+  - url: http://localhost:{port}
+    variables:
+      port:
+        default: "8080"
+paths:
+  /healthz:
+    get:
+      summary: Liveness/health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  repo: { type: string }
+  /issues:
+    post:
+      summary: Create an issue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIssueRequest'
+            examples:
+              create:
+                value:
+                  title: "Bug: cannot save profile"
+                  body: "Steps to reproduce..."
+                  labels: [bug, urgent]
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location:
+              description: Location of the created resource
+              schema: { type: string, example: "/issues/123" }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    get:
+      summary: List issues
+      parameters:
+        - in: query
+          name: state
+          schema: { type: string, enum: [open, closed, all], default: open }
+        - in: query
+          name: labels
+          schema: { type: string }
+          description: Comma-separated labels
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        '200':
+          description: List of issues
+          headers:
+            Link:
+              description: Pagination links as per GitHub semantics
+              schema: { type: string }
+            X-RateLimit-Limit:
+              schema: { type: integer }
+            X-RateLimit-Remaining:
+              schema: { type: integer }
+            X-RateLimit-Reset:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Issue' }
+  /issues/{number}:
+    get:
+      summary: Get a single issue
+      parameters:
+        - in: path
+          name: number
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Issue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Issue' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Update an issue (edit/close/reopen)
+      parameters:
+        - in: path
+          name: number
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateIssueRequest' }
+            examples:
+              close:
+                value:
+                  state: closed
+              edit:
+                value:
+                  title: "Bug: profile save fails intermittently"
+      responses:
+        '200':
+          description: Updated issue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Issue' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /issues/{number}/comments:
+    post:
+      summary: Add a comment to an issue
+      parameters:
+        - in: path
+          name: number
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCommentRequest' }
+            examples:
+              example:
+                value:
+                  body: ":wave: Thanks for reporting! We'll take a look."
+      responses:
+        '201':
+          description: Created comment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /webhook:
+    post:
+      summary: Webhook receiver (GitHub issues & comments)
+      description: |
+        Verifies `X-Hub-Signature-256` using `WEBHOOK_SECRET`. Accepts events `issues`, `issue_comment`, and `ping`.
+        Persists event with idempotency keyed by `X-GitHub-Delivery`.
+      responses:
+        '204': { description: Accepted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /events:
+    get:
+      summary: Return last N processed webhook events
+      parameters:
+        - in: query
+          name: n
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+      responses:
+        '200':
+          description: Recent events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EventRecord' }
+components:
+  schemas:
+    Label:
+      type: object
+      properties:
+        name: { type: string }
+    Issue:
+      type: object
+      required: [number, html_url, state, title, created_at, updated_at]
+      properties:
+        number: { type: integer }
+        html_url: { type: string, format: uri }
+        state: { type: string, enum: [open, closed] }
+        title: { type: string }
+        body: { type: string, nullable: true }
+        labels:
+          type: array
+          items: { $ref: '#/components/schemas/Label' }
+        created_at: { type: string }
+        updated_at: { type: string }
+    Comment:
+      type: object
+      properties:
+        id: { type: integer }
+        body: { type: string }
+        user: { type: object }
+        created_at: { type: string }
+        html_url: { type: string, format: uri }
+    CreateIssueRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        body: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+    UpdateIssueRequest:
+      type: object
+      properties:
+        title: { type: string }
+        body: { type: string }
+        state: { type: string, enum: [open, closed] }
+    CreateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string }
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+        details: { type: object }
+    EventRecord:
+      type: object
+      properties:
+        id: { type: string }
+        event: { type: string }
+        action: { type: string, nullable: true }
+        issue_number: { type: integer, nullable: true }
+        timestamp: { type: string }
+  responses:
+    BadRequest:
+      description: Bad Request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Not Found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  securitySchemes:
+    githubToken:
+      type: http
+      scheme: bearer
+      bearerFormat: GitHub PAT
+security:
+  - {}
