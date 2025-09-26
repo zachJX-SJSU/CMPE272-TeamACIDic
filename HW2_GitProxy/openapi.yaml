@@ -8,21 +8,8 @@ servers:
   - url: http://localhost:{port}
     variables:
       port:
-        default: "8080"
+        default: "5000"
 paths:
-  /healthz:
-    get:
-      summary: Liveness/health check
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status: { type: string }
-                  repo: { type: string }
   /issues:
     post:
       summary: Create an issue
@@ -167,7 +154,7 @@ paths:
       parameters:
         - in: query
           name: n
-          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+          schema: { type: integer, default: 5, minimum: 1, maximum: 50 }
       responses:
         '200':
           description: Recent events
