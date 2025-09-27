@@ -1,6 +1,8 @@
 # Author: Zach Xie
 # Contributor(s):Archana Shivashankar
 
+# Please note any changes to this file should be reflected in test_unit.py. Let Archana know if you are making changes to this file so she can update the tests accordingly.
+
 import httpx
 from fastapi import HTTPException
 from config import settings #changed .config to config as python doesn't know what(.) refers to. these are discoverable  by Python as long as they are in the same directory

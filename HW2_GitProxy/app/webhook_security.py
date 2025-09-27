@@ -1,3 +1,11 @@
+# Author: Archana Shivashankar
+# Contributor(s):
+# 
+# 
+# # Dummy file only for testing purpose to hold security-related functions for webhook signature verification.
+# This is separated out for clarity and single-responsibility. 
+# Please be aware changes in this file witll affect tests in test_unit.py 
+
 import hmac
 import hashlib
 import os
