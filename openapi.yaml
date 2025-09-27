@@ -1,0 +1,323 @@
+openapi: 3.1.0
+info:
+  title: GitHub REST API proxy gateway server
+  version: 1.0.0
+  description: |
+    Gateway API to manage GitHub Issues on a configured repository, and receive GitHub webhooks.
+servers:
+  - url: http://localhost:{port}
+    variables:
+      port:
+        default: "5000"
+paths:
+  /issues:
+    post:
+      summary: Create an issue
+      operationId: createIssue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIssueRequest'
+            examples:
+              create:
+                value:
+                  title: "Bug: cannot save profile"
+                  body: "Steps to reproduce..."
+                  labels: [bug, urgent]
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location:
+              description: Location of the created resource
+              schema: { type: string, example: "/issues/123" }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    get:
+      summary: List issues
+      operationId: listIssues
+      parameters:
+        - in: query
+          name: state
+          schema: { type: string, enum: [open, closed, all], default: open }
+          description: Filter issues by state.
+        - in: query
+          name: labels
+          schema: { type: string }
+          description: Comma-separated labels to filter by.
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        '200':
+          description: List of issues
+          headers:
+            Link:
+              description: Pagination links as per GitHub semantics
+              schema: { type: string }
+            X-RateLimit-Limit:
+              schema: { type: integer }
+            X-RateLimit-Remaining:
+              schema: { type: integer }
+            X-RateLimit-Reset:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Issue'
+
+  /issues/{number}:
+    parameters:
+      - in: path
+        name: number
+        description: The unique number of the issue.
+        required: true
+        schema:
+          type: integer
+          format: int64
+
+    get:
+      summary: Get a single issue
+      operationId: getIssue
+      responses:
+        '200':
+          description: Issue details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '404':
+          description: Issue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      summary: Update an issue
+      operationId: updateIssue
+      description: Partially updates an existing issue's title, body, or state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: The new title for the issue.
+                body:
+                  type: string
+                  description: The new body text for the issue.
+                state:
+                  type: string
+                  enum: [open, closed]
+                  description: The new state of the issue.
+            examples:
+              updateTitle:
+                value:
+                  title: "Minor Bug: cannot save profile"
+      responses:
+        '200':
+          description: Issue updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Issue not found
+
+  /issues/{number}/comments:
+    post:
+      summary: Create a comment
+      operationId: createComment
+      parameters:
+        - in: path
+          name: number
+          description: The unique number of the issue to comment on.
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - body
+              properties:
+                body:
+                  type: string
+                  description: The body of the comment.
+            examples:
+              newComment:
+                value:
+                  body: "I can confirm this bug on my end."
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '404':
+          description: Issue not found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /webhook:
+    post:
+      summary: Register a new webhook
+      operationId: registerWebhook
+      description: Creates a new webhook to receive notifications for specified events.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+                - events
+              properties:
+                url:
+                  type: string
+                  format: url
+                  description: The URL to receive the webhook payloads.
+                events:
+                  type: array
+                  description: A list of events to subscribe to.
+                  items:
+                    type: string
+                    enum: [issue_created, issue_updated, comment_added]
+                secret:
+                  type: string
+                  description: A secret token to validate payloads (optional).
+            examples:
+              newWebhook:
+                value:
+                  url: "https://yourserver.com/listen"
+                  events: [issue_created, comment_added]
+      responses:
+        '201':
+          description: Webhook created
+          headers:
+            Location:
+              description: Location of the created webhook resource
+              schema: { type: string, example: "/webhooks/456" }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /events:
+    get:
+      summary: List recent events
+      operationId: listEvents
+      description: Retrieves a paginated list of recent system events (e.g., issue creation, updates).
+      parameters:
+        - in: query
+          name: event_type
+          schema:
+            type: string
+            description: Filter by a specific event type.
+            enum: [issue_created, issue_updated, comment_added]
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        '200':
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+          headers:
+            Link:
+              description: Pagination links
+              schema: { type: string }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  schemas:
+    Issue:
+      type: object
+      properties:
+        id: { type: integer, readOnly: true }
+        number: { type: integer, readOnly: true }
+        title: { type: string }
+        body: { type: string }
+        state: { type: string, enum: [open, closed] }
+        labels: { type: array, items: { type: string } }
+    CreateIssueRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        body: { type: string }
+        labels: { type: array, items: { type: string } }
+    Comment:
+      type: object
+      properties:
+        id: { type: integer, readOnly: true }
+        body: { type: string }
+        author: { type: string }
+    Webhook:
+      type: object
+      properties:
+        id: { type: integer, readOnly: true }
+        url: { type: string, format: url }
+        events: { type: array, items: { type: string } }
+    Event:
+      type: object
+      properties:
+        id: { type: integer, readOnly: true }
+        type: { type: string }
+        resource_url: { type: string, format: url }
+        created_at: { type: string, format: date-time }
+    Error:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+
+  responses:
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication is required or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
