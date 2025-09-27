@@ -58,12 +58,12 @@ async def create_issue(req: CreateIssueRequest, response: Response, request: Req
             return JSONResponse(status_code=401, content={"error": "unauthorized", "details": e.detail})
         raise
 
-# 2) GET /issues, get all issues
+# 2) GET /issues, get issues
 # Author: Zach Xie
 @app.get("/issues", response_model=list[Issue])
 async def list_issues(state: str = "open", labels: str | None = None, page: int = 1, per_page: int = 30, response: Response = None):
     now = datetime.now(timezone.utc).isoformat()
-    logger.debug("Calling GET /issues with param ...", 
+    logger.debug("Calling GET /issues ...", 
         timestamp=now,
         state=state,
         page=page,
@@ -79,3 +79,15 @@ async def list_issues(state: str = "open", labels: str | None = None, page: int 
     if response:
         response.headers.update(headers)
     return data
+
+
+# 3) GET /issues/{number}
+
+# 4) PATCH /issues/{number}
+
+# 5) POST /issues/{number}/comments
+
+# 6) POST /webhook , handles webhook events from Github
+
+
+# 7) GET /events , requests come from frontend (optional)
