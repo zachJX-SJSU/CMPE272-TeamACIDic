@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Preetam’s GitHub Issue Client</title>
+</head>
+<body>
+  <h1>GitHub Issues Frontend (Preetam)</h1>
+
+  <button onclick="createIssue()">Create Issue</button>
+  <button onclick="getIssues()">Get Issues</button>
+  <button onclick="updateIssue()">Update Issue</button>
+  <button onclick="closeIssue()">Close Issue</button>
+
+  <pre id="output"></pre>
+
+  <script>
+    const backend = "http://54.164.75.152:5000";  // later Zach’s server will listen here
+
+    async function createIssue() {
+      const res = await fetch(`${backend}/issues`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Issue from Preetam’s frontend" })
+      });
+      document.getElementById("output").textContent = await res.text();
+    }
+
+    async function getIssues() {
+      const res = await fetch(`${backend}/issues`);
+      document.getElementById("output").textContent = await res.text();
+    }
+
+    async function updateIssue() {
+      const number = prompt("Enter issue number to update:");
+      const res = await fetch(`${backend}/issues/${number}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Updated by Preetam frontend" })
+      });
+      document.getElementById("output").textContent = await res.text();
+    }
+
+    async function closeIssue() {
+      const number = prompt("Enter issue number to close:");
+      const res = await fetch(`${backend}/issues/${number}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: "closed" })
+      });
+      document.getElementById("output").textContent = await res.text();
+    }
+  </script>
+</body>
+</html>
