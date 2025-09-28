@@ -21,6 +21,10 @@ from pydantic import BaseModel
 app = FastAPI(title="GitHub Issues Gateway", version="1.0.0")
 
 #DB init block:Pratham Rajesh
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True}
+
 DB_PATH = "events.db"
 
 async def init_db():
@@ -234,8 +238,7 @@ async def webhook(
     raw = await request.body()
 
     # HMAC verify (uses utils.verify_signature imported near top)
-    if not verify_signature(WEBHOOK_SECRET, raw, x_hub_signature_256):
-        raise HTTPException(status_code=401, detail="Invalid signature")
+    verify_signature(raw, x_hub_signature_256)
 
     # Support only these events
     if x_github_event not in ("issues", "issue_comment", "ping"):
