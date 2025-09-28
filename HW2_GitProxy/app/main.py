@@ -169,6 +169,48 @@ async def update_issue(number: int, update_data: UpdateIssueRequest, response: R
 
 
 # 5) POST /issues/{number}/comments
+# Author: Preetam
+@app.post(
+    "/issues/{number}/comments",
+    response_model=Comment,
+    status_code=201,
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def create_comment(number: int, req: CreateCommentRequest, response: Response):
+    """
+    Add a new comment to an existing GitHub issue.
+    Request body: { "body": "your comment text" }
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    logger.debug("Calling POST /issues/{number}/comments ...",
+        timestamp=now,
+        issue_number=number,
+        comment=req.body
+    )
+
+    try:
+        payload = req.model_dump(exclude_none=True)
+        data, headers = await client.create_comment(number, payload)
+        response.headers.update(headers)
+
+        logger.info("Comment created!",
+            timestamp=now,
+            issue_number=number,
+            comment_id=data.get("id")
+        )
+        return data
+
+    except HTTPException as e:
+        logger.error(f"Comment creation failed with {e.status_code}",
+            timestamp=now,
+            issue_number=number
+        )
+        if e.status_code == 401:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "unauthorized", "details": e.detail}
+            )
+        raise
 
 # 6) POST /webhook , handles webhook events from Github
 
