@@ -5,12 +5,9 @@ import httpx
 from fastapi import HTTPException
 from .config import settings 
 from .utils import parse_pagination_headers 
+from .exceptions import GitHubClientError, NotFoundError, AuthError, BadRequestError
 
 BASE = "https://api.github.com"
-
-class NotFoundError(Exception): pass
-class AuthError(Exception): pass
-class BadRequestError(Exception): pass
 
 class GitHubClient:
     def __init__(self):
