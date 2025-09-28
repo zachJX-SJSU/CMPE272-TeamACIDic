@@ -138,16 +138,59 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Comment' }
         '404': { $ref: '#/components/responses/NotFound' }
+
   /webhook:
     post:
       summary: Webhook receiver (GitHub issues & comments)
       description: |
-        Verifies `X-Hub-Signature-256` using `WEBHOOK_SECRET`. Accepts events `issues`, `issue_comment`, and `ping`.
-        Persists event with idempotency keyed by `X-GitHub-Delivery`.
+        Verifies HMAC SHA-256 with `X-Hub-Signature-256` using `WEBHOOK_SECRET`.
+        Accepts events `issues`, `issue_comment`, and `ping`.
+        Persists each delivery idempotently using `X-GitHub-Delivery`.
+      parameters:
+        - in: header
+          name: X-Hub-Signature-256
+          required: true
+          schema: { type: string, example: "sha256=<hex>" }
+          description: HMAC SHA-256 of raw body with the shared secret.
+        - in: header
+          name: X-GitHub-Event
+          required: true
+          schema: { type: string, enum: [issues, issue_comment, ping] }
+          description: GitHub event type.
+        - in: header
+          name: X-GitHub-Delivery
+          required: true
+          schema: { type: string }
+          description: Unique delivery id for idempotency.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: GitHub webhook event payload (issues or issue_comment)
+              properties:
+                action: { type: string }
+                issue:
+                  type: object
+                  properties:
+                    number: { type: integer }
+              example:
+                action: "opened"
+                issue: { number: 123 }
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                payload:
+                  type: string
+                  description: JSON string of the GitHub event payload.
+                  example: '{"action":"opened","issue":{"number":123}}'
       responses:
-        '204': { description: Accepted }
+        '204': { description: Accepted (processed or safely ignored) }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
   /events:
     get:
       summary: Return last N processed webhook events
@@ -155,14 +198,24 @@ paths:
         - in: query
           name: n
           schema: { type: integer, default: 5, minimum: 1, maximum: 50 }
+          description: Number of most recent events to return.
       responses:
         '200':
-          description: Recent events
+          description: Recent events (most recent first)
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/EventRecord' }
+              examples:
+                sample:
+                  value:
+                    - id: "a1b2c3d4"
+                      event: "issues"
+                      action: "opened"
+                      issue_number: 123
+                      timestamp: 1759009609
+
 components:
   schemas:
     Label:
@@ -223,7 +276,7 @@ components:
         event: { type: string }
         action: { type: string, nullable: true }
         issue_number: { type: integer, nullable: true }
-        timestamp: { type: string }
+        timestamp: { type: integer, description: "Unix epoch seconds" }
   responses:
     BadRequest:
       description: Bad Request
