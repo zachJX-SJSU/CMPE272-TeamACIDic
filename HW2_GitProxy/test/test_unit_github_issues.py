@@ -11,6 +11,7 @@ import os
 import sys
 from typing import Callable
 from unittest import mock 
+from fastapi import HTTPException
 
 #We patch os.environ with temporary values that satisfy pydantic's requirements
 # This must happen BEFORE the import chain starts loading modules that use pydantic (like config.py)
@@ -41,7 +42,7 @@ sys.modules['utils'] = mock_utils
 # Import the code we are testing
 # NOTE: Ensure these exceptions are defined and imported correctly
 from app.github_client import GitHubClient, NotFoundError, AuthError, BadRequestError 
-from app.webhook_security import verify_signature, generate_valid_signature
+from app.utils import verify_signature, compute_signature
 
 
 # --- Setup: Helper to build mocked responses for httpx ---
@@ -169,45 +170,63 @@ def test_webhook_valid_signature():
     """
     Asserts that the function returns True for a correctly calculated signature.
     """
-    valid_signature = generate_valid_signature(TEST_PAYLOAD)
+    valid_signature = compute_signature(TEST_PAYLOAD)
     is_valid = verify_signature(TEST_PAYLOAD, valid_signature)
     assert is_valid is True
 
 def test_webhook_invalid_secret_signature():
     """
-    Asserts that the function returns False if the payload was signed with a different secret (simulates a bad sender).
+    Tests that a request signed with a wrong secret raises a 401 HTTPException.
     """
+    # Note: Since app/utils.py raises HTTPException on invalid signature, we must catch it.
     fake_secret = "a_different_secret_987"
+    # compute_signature uses the real SECRET; we manually construct the WRONG signature using the fake secret.
     wrong_hmac = hmac.new(fake_secret.encode('utf-8'), TEST_PAYLOAD, hashlib.sha256).hexdigest()
     wrong_signature = f"sha256={wrong_hmac}"
     
-    is_valid = verify_signature(TEST_PAYLOAD, wrong_signature)
-    
-    assert is_valid is False
+    with pytest.raises(HTTPException) as excinfo: # <-- FIX 1: Wrap with pytest.raises
+        verify_signature(TEST_PAYLOAD, wrong_signature)
+        
+    assert excinfo.value.status_code == 401
+    assert "Invalid signature" in excinfo.value.detail
 
 def test_webhook_tampered_body():
     """
-    Asserts that the function returns False if the body was changed after signing 
-    (simulates an attacker modifying the data in transit).
+    Tests that a request with a tampered body (invalidates the signature) raises a 401 HTTPException.
     """
-    valid_signature = generate_valid_signature(TEST_PAYLOAD)
+    # Note: Since app/utils.py raises HTTPException on invalid signature, we must catch it.
+    valid_signature = compute_signature(TEST_PAYLOAD)
     
     tampered_payload = json.dumps({"action": "opened", "issue": {"number": 1, "title": "HACKED TITLE"}}).encode('utf-8')
     
-    is_valid = verify_signature(tampered_payload, valid_signature)
+    with pytest.raises(HTTPException) as excinfo: # <-- FIX 1: Wrap with pytest.raises
+        verify_signature(tampered_payload, valid_signature)
     
-    assert is_valid is False
+    assert excinfo.value.status_code == 401
+    assert "Invalid signature" in excinfo.value.detail
 
 def test_webhook_missing_signature_header():
     """
-    Tests handling of requests with a completely missing signature header.
+    Tests handling of requests with a completely missing signature header, which raises HTTPException.
     """
-    is_valid = verify_signature(TEST_PAYLOAD, signature_header="")
-    assert is_valid is False
+    # This test was failing with NameError: HTTPException not defined (now fixed by import).
+    # It now correctly asserts the HTTPException raised when signature is None.
+    with pytest.raises(HTTPException) as excinfo:
+        # NOTE: Passing None as the signature, as the function expects str | None
+        verify_signature(TEST_PAYLOAD, None) 
+    
+    # Assert that the correct exception was raised
+    assert excinfo.value.status_code == 401
+    assert "Missing signature" in excinfo.value.detail
     
 def test_webhook_invalid_signature_format():
     """
-    Tests handling of requests with a malformed signature header.
+    Tests handling of requests with a malformed signature header, which raises HTTPException 
+    because hmac.compare_digest(malformed_sig, expected_sig) will fail.
     """
-    is_valid = verify_signature(TEST_PAYLOAD, signature_header="invalid_format_no_equals")
-    assert is_valid is False
+    # Note: Since app/utils.py raises HTTPException on invalid signature, we must catch it.
+    with pytest.raises(HTTPException) as excinfo: # <-- FIX 1: Wrap with pytest.raises
+        verify_signature(TEST_PAYLOAD, signature="invalid_format_no_equals")
+        
+    assert excinfo.value.status_code == 401
+    assert "Invalid signature" in excinfo.value.detail
