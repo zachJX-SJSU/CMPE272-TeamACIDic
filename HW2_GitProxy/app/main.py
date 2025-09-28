@@ -82,8 +82,64 @@ async def list_issues(state: str = "open", labels: str | None = None, page: int 
 
 
 # 3) GET /issues/{number}
+# Author: Archana Shivashankar 
+@app.get("/issues/{number}", response_model=Issue, responses={404: {"model": ErrorResponse}})
+async def get_issue(number: int, response: Response):
+   """
+   Retrive a single issue form the Github repository by using its issue number.
+   """
+   #1. Log the incoming request
+   now = datetime.now(timezone.utc).isoformat()
+   logger.debug("Calling GET /issues/{number} ...",
+       timestamp=now,
+       issue_number=number
+   )
+   #2. Call the Github API to get the issue details
+   try:
+       data, headers = await client.get_issue(number)
+   except Exception as e:
+       raise HTTPException(status_code=500, detail={"error": f"Failed to fetch issue{number}", "details": str(e)})
+   #3. update the response headers
+   response.headers.update(headers)
+   #4. return the issue details
+   logger.info("Successfull got issue",
+           timestamp=now,
+           data=data
+   )
+   return data
 
 # 4) PATCH /issues/{number}
+# Author: Archana Shivashankar 
+@app.patch("/issues/{number}", response_model=Issue, responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}})
+async def update_issue(number: int, update_data: UpdateIssueRequest, response: Response):
+   """
+   Update an existing issue in the Github repository by using its issue number.
+   """
+   #1. Log the incoming request
+   now = datetime.now(timezone.utc).isoformat()
+   logger.debug("Calling PATCH /issues/{number} ...",
+       timestamp=now,
+       issue_number=number,
+       data=update_data.model_dump()
+   )
+   #2. Prepare the data to send to Github API
+   data_to_send = update_data.model_dump(exclude_unset=True)
+
+   #3. Call the Github API to update the issue details
+   try:
+       data, headers = await client.update_issue(number, data_to_send)
+   except Exception as e:
+       raise HTTPException(status_code=500, detail={"error": f"Failed to update issue{number}", "details": str(e)})
+   #4. update the response headers
+   response.headers.update(headers)
+   logger.info("Successfull updated issue",
+           timestamp=now,
+           issue_numer=number,
+           data=data
+   )
+   #5. return the updated issue details
+   return data
+
 
 # 5) POST /issues/{number}/comments
 
