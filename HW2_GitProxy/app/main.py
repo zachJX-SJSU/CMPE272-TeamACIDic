@@ -12,7 +12,34 @@ from .utils import verify_signature, EVENT_HEADER, DELIVERY_HEADER
 from .logging_utils import logger, RequestIdMiddleware
 from datetime import datetime, timezone
 
+#for webhooks: Pratham Rajesh
+import os,hmac,hashlib,json,time
+from typing import Optional, List
+import aiosqlite
+from pydantic import BaseModel
+
 app = FastAPI(title="GitHub Issues Gateway", version="1.0.0")
+
+#DB init block:Pratham Rajesh
+DB_PATH = "events.db"
+
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+              id TEXT PRIMARY KEY,
+              event TEXT NOT NULL,
+              action TEXT,
+              issue_number INTEGER,
+              timestamp INTEGER NOT NULL
+            )
+        """)
+        await db.commit()
+
+@app.on_event("startup")
+async def on_startup():
+    await init_db()
+#DB init end
 app.add_middleware(RequestIdMiddleware)
 
 @app.on_event("startup")
@@ -144,6 +171,82 @@ async def update_issue(number: int, update_data: UpdateIssueRequest, response: R
 # 5) POST /issues/{number}/comments
 
 # 6) POST /webhook , handles webhook events from Github
+
+# >>> PRATHAM WEBHOOK START >>>
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+
+class EventOut(BaseModel):
+    id: str
+    event: str
+    action: Optional[str]
+    issue_number: Optional[int]
+    timestamp: int
+
+@app.post("/webhook")
+async def webhook(
+    request: Request,
+    x_hub_signature_256: Optional[str] = Header(default=None, alias="X-Hub-Signature-256"),
+    x_github_event: Optional[str] = Header(default=None, alias="X-GitHub-Event"),
+    x_github_delivery: Optional[str] = Header(default=None, alias="X-GitHub-Delivery"),
+):
+    raw = await request.body()
+
+    # HMAC verify (uses utils.verify_signature imported near top)
+    if not verify_signature(WEBHOOK_SECRET, raw, x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    # Support only these events
+    if x_github_event not in ("issues", "issue_comment", "ping"):
+        raise HTTPException(status_code=400, detail=f"Unsupported event: {x_github_event}")
+
+    # Robust payload parsing: JSON or x-www-form-urlencoded (payload=<json>)
+    content_type = (request.headers.get("content-type") or "").lower()
+    body_text = raw.decode("utf-8") if raw else ""
+
+    if "application/json" in content_type:
+        body_json_text = body_text or "{}"
+    elif "application/x-www-form-urlencoded" in content_type:
+        import urllib.parse
+        form = urllib.parse.parse_qs(body_text)
+        body_json_text = form.get("payload", ["{}"])[0]
+    else:
+        body_json_text = body_text or "{}"
+
+    try:
+        payload = json.loads(body_json_text)
+    except json.JSONDecodeError:
+        # Acknowledge malformed/empty body so GitHub won't retry forever
+        return Response(status_code=204)
+
+    action = payload.get("action")
+    issue = payload.get("issue") if isinstance(payload.get("issue"), dict) else None
+    issue_number = issue.get("number") if isinstance(issue, dict) else None
+
+    now = int(time.time())
+    async with aiosqlite.connect(DB_PATH) as db:
+        try:
+            await db.execute(
+                "INSERT INTO events (id, event, action, issue_number, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (x_github_delivery, x_github_event, action, issue_number, now),
+            )
+            await db.commit()
+        except aiosqlite.IntegrityError:
+            # duplicate delivery id -> ignore (idempotent)
+            pass
+
+    return Response(status_code=204)
+
+@app.get("/events", response_model=List[EventOut])
+async def get_events(n: int = 20):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, event, action, issue_number, timestamp FROM events ORDER BY timestamp DESC LIMIT ?",
+            (n,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [EventOut(**dict(r)) for r in rows]
+# <<< PRATHAM WEBHOOK END <<<
 
 
 # 7) GET /events , requests come from frontend (optional)
