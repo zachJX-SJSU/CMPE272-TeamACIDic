@@ -3,8 +3,8 @@
 
 import httpx
 from fastapi import HTTPException
-from .config import settings #changed .config to config as python doesn't know what(.) refers to. these are discoverable  by Python as long as they are in the same directory
-from .utils import parse_pagination_headers # Same as above
+from .config import settings 
+from .utils import parse_pagination_headers 
 
 BASE = "https://api.github.com"
 
