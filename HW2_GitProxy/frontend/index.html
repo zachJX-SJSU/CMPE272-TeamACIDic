@@ -11,6 +11,8 @@
   <button onclick="getIssues()">Get Issues</button>
   <button onclick="updateIssue()">Update Issue</button>
   <button onclick="closeIssue()">Close Issue</button>
+  <button onclick="addComment()">Add Comment</button>
+
 
   <pre id="output"></pre>
 
@@ -50,6 +52,21 @@
       });
       document.getElementById("output").textContent = await res.text();
     }
+    async function addComment() {
+	  const number = prompt("Enter issue number:");
+	 const comment = prompt("Enter your comment text:");
+ 	 if (!number || !comment) return;
+
+  const res = await fetch(`${backend}/issues/${number}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body: comment })
+  });
+
+  document.getElementById("output").textContent =
+    `${res.status} ${res.statusText}\n` + await res.text();
+}
+
   </script>
 </body>
 </html>
