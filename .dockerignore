@@ -1,0 +1,9 @@
+.env
+events.db
+venv/
+__pycache__/
+*.log
+.git
+.gitignore
+*.bak
+tmp/
