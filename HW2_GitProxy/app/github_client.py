@@ -1,10 +1,11 @@
 # Author: Zach Xie
-# Contributor(s):
+# Contributor(s): Archana Shivashankar
 
 import httpx
 from fastapi import HTTPException
-from .config import settings
-from .utils import parse_pagination_headers
+from .config import settings 
+from .utils import parse_pagination_headers 
+from .exceptions import GitHubClientError, NotFoundError, AuthError, BadRequestError
 
 BASE = "https://api.github.com"
 
@@ -31,6 +32,10 @@ class GitHubClient:
     async def create_issue(self, payload: dict):
         r = await self._client.post(f"/repos/{self.owner}/{self.repo}/issues", json=payload)
         await self._handle_rate_limit(r)
+        if r.status_code == 422:
+            raise BadRequestError("Validation failed due to bad request data.")
+        if r.status_code in (401, 403):
+            raise AuthError("Authentication failed.")
         if r.is_success:
             return r.json(), parse_pagination_headers(r)
         raise HTTPException(status_code=r.status_code, detail=r.json())
@@ -38,6 +43,8 @@ class GitHubClient:
     async def list_issues(self, params: dict):
         r = await self._client.get(f"/repos/{self.owner}/{self.repo}/issues", params=params)
         await self._handle_rate_limit(r)
+        if r.status_code in (401, 403):
+            raise AuthError("Authentication failed.")
         if r.is_success:
             return r.json(), parse_pagination_headers(r)
         raise HTTPException(status_code=r.status_code, detail=r.json())
@@ -47,6 +54,10 @@ class GitHubClient:
         await self._handle_rate_limit(r)
         if r.status_code == 404:
             raise HTTPException(status_code=404, detail={"error": "not_found"})
+        if r.status_code == 422:
+            raise BadRequestError("Validation failed due to bad request data.")
+        if r.status_code in (401, 403):
+            raise AuthError("Authentication failed.")
         if r.is_success:
             return r.json(), parse_pagination_headers(r)
         raise HTTPException(status_code=r.status_code, detail=r.json())
@@ -56,6 +67,10 @@ class GitHubClient:
         await self._handle_rate_limit(r)
         if r.status_code == 404:
             raise HTTPException(status_code=404, detail={"error": "not_found"})
+        if r.status_code == 422:
+            raise BadRequestError("Validation failed due to bad request data.")
+        if r.status_code in (401, 403):
+            raise AuthError("Authentication failed.")
         if r.is_success:
             return r.json(), parse_pagination_headers(r)
         raise HTTPException(status_code=r.status_code, detail=r.json())
@@ -65,11 +80,38 @@ class GitHubClient:
         await self._handle_rate_limit(r)
         if r.status_code == 404:
             raise HTTPException(status_code=404, detail={"error": "not_found"})
+        if r.status_code == 422:
+            raise BadRequestError("Validation failed due to bad request data.")
+        if r.status_code in (401, 403):
+            raise AuthError("Authentication failed.")
         if r.is_success:
             return r.json(), parse_pagination_headers(r)
         raise HTTPException(status_code=r.status_code, detail=r.json())
 
     async def close(self):
         await self._client.aclose()
+
+    async def get_issue(self, number: int):
+        r = await self._client.get(f"/repos/{self.owner}/{self.repo}/issues/{number}")
+        await self._handle_rate_limit(r)
+        
+        # 1. Handle 404: Not Found
+        if r.status_code == 404:
+            raise NotFoundError("Resource not found.")
+            
+        # 2. Handle 422: Unprocessable Entity / Validation Failure
+        if r.status_code == 422:
+            # The message must align with the test assertion ("validation failed")
+            raise BadRequestError("Validation failed due to bad request data.")
+
+        # 3. Handle 401/403: Authorization Errors
+        if r.status_code in (401, 403):
+            raise AuthError("Authentication failed.")
+            
+        if r.is_success:
+            return r.json(), parse_pagination_headers(r)
+            
+        # Fallback for other errors (e.g., 500, other unhandled 4xx)
+        raise HTTPException(status_code=r.status_code, detail=r.json())
 
 client = GitHubClient()
